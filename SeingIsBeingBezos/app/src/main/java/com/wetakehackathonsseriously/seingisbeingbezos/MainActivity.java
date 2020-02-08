@@ -48,48 +48,49 @@ public class MainActivity extends AppCompatActivity {
         cameraPreview = (TextureView)findViewById(R.id.textureView);
         cameraPreview.setSurfaceTextureListener(textureListener);
 
-        final Handler handler = new Handler();
-        final int delay = 5000; //milliseconds
-
-        handler.postDelayed(new Runnable(){
-            public void run(){
-                //do something
-                handler.postDelayed(this, delay);
-                if (camera == null || cameraManager == null) return;
-
-                final ImageReader snapshotReader = ImageReader.newInstance(imageSize.getWidth(), imageSize.getHeight(), ImageFormat.JPEG, 1);
-                ImageReader.OnImageAvailableListener snapshotListener = new ImageReader.OnImageAvailableListener() {
-                    @Override
-                    public void onImageAvailable(ImageReader reader) {
-                        Image image = null;
-                        image = snapshotReader.acquireLatestImage();
-                        Log.i("Camera", String.valueOf(image.getHeight()));
-                    }
-                };
-                snapshotReader.setOnImageAvailableListener(snapshotListener, null);
-                try {
-                     camera.createCaptureSession(Arrays.asList(snapshotReader.getSurface()), new CameraCaptureSession.StateCallback() {
-                        @Override
-                        public void onConfigured(@NonNull CameraCaptureSession session) {
-                            try {
-                                CaptureRequest.Builder snapshotCaptureRequest = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-                                snapshotCaptureRequest.addTarget(snapshotReader.getSurface());
-                                session.capture(snapshotCaptureRequest.build(), null, null);
-                            } catch (CameraAccessException e) {
-                                e.printStackTrace();
-                            }
-                        }
-
-                        @Override
-                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                            Log.e("Camera", "Failed to configure for snapshot");
-                        }
-                    }, null);
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
-                }
-            }
-        }, delay);
+//        final Handler handler = new Handler();
+//        final int delay = 5000; //milliseconds
+//
+//        handler.postDelayed(new Runnable(){
+//            public void run(){
+//                //do something
+//                handler.postDelayed(this, delay);
+//                if (camera == null || cameraManager == null) return;
+//
+//                final ImageReader snapshotReader = ImageReader.newInstance(imageSize.getWidth(), imageSize.getHeight(), ImageFormat.JPEG, 1);
+//                ImageReader.OnImageAvailableListener snapshotListener = new ImageReader.OnImageAvailableListener() {
+//                    @Override
+//                    public void onImageAvailable(ImageReader reader) {
+//                        Image image = null;
+//                        image = snapshotReader.acquireLatestImage();
+//                        Log.i("Camera", "Got image " + String.valueOf(image.getHeight()));
+//                    }
+//                };
+//                snapshotReader.setOnImageAvailableListener(snapshotListener, null);
+//                try {
+//                     camera.createCaptureSession(Arrays.asList(snapshotReader.getSurface()), new CameraCaptureSession.StateCallback() {
+//                        @Override
+//                        public void onConfigured(@NonNull CameraCaptureSession session) {
+//                            try {
+//                                CaptureRequest.Builder snapshotCaptureRequest = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+//                                snapshotCaptureRequest.addTarget(snapshotReader.getSurface());
+//                                session.capture(snapshotCaptureRequest.build(), null, null);
+//                                session.close();
+//                            } catch (CameraAccessException e) {
+//                                e.printStackTrace();
+//                            }
+//                        }
+//
+//                        @Override
+//                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+//                            Log.e("Camera", "Failed to configure for snapshot");
+//                        }
+//                    }, null);
+//                } catch (CameraAccessException e) {
+//                    e.printStackTrace();
+//                }
+//            }
+//        }, delay);
     }
 
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
@@ -134,6 +135,10 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private void configureCamera() {
+        try {
+            Size[] sizes = cameraManager.getCameraCharacteristics(cameraID).get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
+            imageSize = sizes[0];
+        } catch (CameraAccessException e) {}
         // prepare list of surfaces to be used in capture requests
         List<Surface> sfl = new ArrayList<Surface>();
         SurfaceTexture texture = cameraPreview.getSurfaceTexture();
@@ -141,10 +146,18 @@ public class MainActivity extends AppCompatActivity {
         texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
         surface = new Surface(texture);
         sfl.add(surface); // surface for viewfinder preview
-        try {
-            Size[] sizes = cameraManager.getCameraCharacteristics(cameraID).get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
-            imageSize = sizes[0];
-        } catch (CameraAccessException e) {}
+        snapshotReader = ImageReader.newInstance(imageSize.getWidth(), imageSize.getHeight(), ImageFormat.JPEG, 1);
+        ImageReader.OnImageAvailableListener snapshotListener = new ImageReader.OnImageAvailableListener() {
+            @Override
+            public void onImageAvailable(ImageReader reader) {
+                Image image = null;
+                image = snapshotReader.acquireLatestImage();
+                Log.i("Camera", "Got image " + String.valueOf(image.getHeight()));
+                image.close();
+            }
+        };
+        snapshotReader.setOnImageAvailableListener(snapshotListener, null);
+        sfl.add(snapshotReader.getSurface());
         // configure camera with all the surfaces to be ever used
         try {
             camera.createCaptureSession(sfl,
@@ -178,6 +191,24 @@ public class MainActivity extends AppCompatActivity {
                 Log.d("Camera", "setting up preview failed");
                 e.printStackTrace();
             }
+
+            final Handler handler = new Handler();
+            final int delay = 1000;
+
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    handler.postDelayed(this, delay);
+                    CaptureRequest.Builder snapshotCaptureRequest = null;
+                    try {
+                        snapshotCaptureRequest = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                        snapshotCaptureRequest.addTarget(snapshotReader.getSurface());
+                       cameraCaptureSession.capture(snapshotCaptureRequest.build(), null, null);
+                    } catch (CameraAccessException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }, delay);
         }
     }
 
@@ -202,10 +233,10 @@ public class MainActivity extends AppCompatActivity {
         Log.e("Camera", "openCamera X");
     }
 
-    private class CaptureCameraSnapshot extends BroadcastReceiver {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-
-        }
-    }
+//    private class CaptureCameraSnapshot extends BroadcastReceiver {
+//        @Override
+//        public void onReceive(Context context, Intent intent) {
+//
+//        }
+//    }
 }
